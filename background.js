@@ -70,6 +70,8 @@ const PERSISTED_SETTING_DEFAULTS = {
 };
 
 const PERSISTED_SETTING_KEYS = Object.keys(PERSISTED_SETTING_DEFAULTS);
+const SETTINGS_EXPORT_SCHEMA_VERSION = 1;
+const SETTINGS_EXPORT_FILENAME_PREFIX = 'multipage-settings';
 
 const DEFAULT_STATE = {
   currentStep: 0, // 当前流程执行到的步骤编号。
@@ -141,6 +143,24 @@ function normalizeEmailGenerator(value = '') {
   return String(value || '').trim().toLowerCase() === 'cloudflare' ? 'cloudflare' : 'duck';
 }
 
+function normalizePanelMode(value = '') {
+  return String(value || '').trim().toLowerCase() === 'sub2api' ? 'sub2api' : 'cpa';
+}
+
+function normalizeMailProvider(value = '') {
+  const normalized = String(value || '').trim().toLowerCase();
+  switch (normalized) {
+    case HOTMAIL_PROVIDER:
+    case '163':
+    case '163-vip':
+    case 'qq':
+    case 'inbucket':
+      return normalized;
+    default:
+      return PERSISTED_SETTING_DEFAULTS.mailProvider;
+  }
+}
+
 function normalizeLocalCpaStep9Mode(value = '') {
   return String(value || '').trim().toLowerCase() === 'bypass'
     ? 'bypass'
@@ -157,18 +177,99 @@ function normalizeCloudflareDomain(rawValue = '') {
   return value;
 }
 
+function normalizeCloudflareDomains(values) {
+  const normalizedDomains = [];
+  const seen = new Set();
+
+  for (const value of Array.isArray(values) ? values : []) {
+    const normalized = normalizeCloudflareDomain(value);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    normalizedDomains.push(normalized);
+  }
+
+  return normalizedDomains;
+}
+
+function normalizePersistentSettingValue(key, value) {
+  switch (key) {
+    case 'panelMode':
+      return normalizePanelMode(value);
+    case 'vpsUrl':
+      return String(value || '').trim();
+    case 'vpsPassword':
+      return String(value || '');
+    case 'localCpaStep9Mode':
+      return normalizeLocalCpaStep9Mode(value);
+    case 'sub2apiUrl':
+      return String(value || '').trim();
+    case 'sub2apiEmail':
+      return String(value || '').trim();
+    case 'sub2apiPassword':
+      return String(value || '');
+    case 'sub2apiGroupName':
+      return String(value || '').trim();
+    case 'customPassword':
+      return String(value || '');
+    case 'autoRunSkipFailures':
+    case 'autoRunDelayEnabled':
+      return Boolean(value);
+    case 'autoRunDelayMinutes':
+      return normalizeAutoRunDelayMinutes(value);
+    case 'mailProvider':
+      return normalizeMailProvider(value);
+    case 'emailGenerator':
+      return normalizeEmailGenerator(value);
+    case 'inbucketHost':
+      return String(value || '').trim();
+    case 'inbucketMailbox':
+      return String(value || '').trim();
+    case 'cloudflareDomain':
+      return normalizeCloudflareDomain(value);
+    case 'cloudflareDomains':
+      return normalizeCloudflareDomains(value);
+    case 'hotmailAccounts':
+      return normalizeHotmailAccounts(value);
+    default:
+      return value;
+  }
+}
+
+function buildPersistentSettingsPayload(input = {}, options = {}) {
+  const { fillDefaults = false, requireKnownKeys = false } = options;
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('\u914d\u7f6e\u5185\u5bb9\u683c\u5f0f\u65e0\u6548\u3002');
+  }
+
+  const payload = {};
+  let matchedKeyCount = 0;
+  for (const key of PERSISTED_SETTING_KEYS) {
+    if (input[key] !== undefined) {
+      payload[key] = normalizePersistentSettingValue(key, input[key]);
+      matchedKeyCount += 1;
+    } else if (fillDefaults) {
+      payload[key] = normalizePersistentSettingValue(key, PERSISTED_SETTING_DEFAULTS[key]);
+    }
+  }
+
+  if (requireKnownKeys && matchedKeyCount === 0) {
+    throw new Error('\u914d\u7f6e\u6587\u4ef6\u4e2d\u6ca1\u6709\u53ef\u8bc6\u522b\u7684\u914d\u7f6e\u5185\u5bb9\u3002');
+  }
+
+  if (payload.cloudflareDomains) {
+    const domains = normalizeCloudflareDomains(payload.cloudflareDomains);
+    if (payload.cloudflareDomain && !domains.includes(payload.cloudflareDomain)) {
+      domains.unshift(payload.cloudflareDomain);
+    }
+    payload.cloudflareDomains = domains;
+  }
+
+  return payload;
+}
+
 async function getPersistedSettings() {
   const stored = await chrome.storage.local.get(PERSISTED_SETTING_KEYS);
-  return {
-    ...PERSISTED_SETTING_DEFAULTS,
-    ...stored,
-    autoRunSkipFailures: Boolean(stored.autoRunSkipFailures ?? PERSISTED_SETTING_DEFAULTS.autoRunSkipFailures),
-    autoRunDelayEnabled: Boolean(stored.autoRunDelayEnabled ?? PERSISTED_SETTING_DEFAULTS.autoRunDelayEnabled),
-    autoRunDelayMinutes: normalizeAutoRunDelayMinutes(stored.autoRunDelayMinutes ?? PERSISTED_SETTING_DEFAULTS.autoRunDelayMinutes),
-    emailGenerator: normalizeEmailGenerator(stored.emailGenerator ?? PERSISTED_SETTING_DEFAULTS.emailGenerator),
-    localCpaStep9Mode: normalizeLocalCpaStep9Mode(stored.localCpaStep9Mode ?? PERSISTED_SETTING_DEFAULTS.localCpaStep9Mode),
-    hotmailAccounts: normalizeHotmailAccounts(stored.hotmailAccounts),
-  };
+  return buildPersistentSettingsPayload(stored, { fillDefaults: true });
 }
 
 async function getState() {
@@ -200,26 +301,73 @@ async function setState(updates) {
 }
 
 async function setPersistentSettings(updates) {
-  const persistedUpdates = {};
-  for (const key of PERSISTED_SETTING_KEYS) {
-    if (updates[key] !== undefined) {
-      if (key === 'autoRunSkipFailures' || key === 'autoRunDelayEnabled') {
-        persistedUpdates[key] = Boolean(updates[key]);
-      } else if (key === 'autoRunDelayMinutes') {
-        persistedUpdates[key] = normalizeAutoRunDelayMinutes(updates[key]);
-      } else if (key === 'localCpaStep9Mode') {
-        persistedUpdates[key] = normalizeLocalCpaStep9Mode(updates[key]);
-      } else if (key === 'hotmailAccounts') {
-        persistedUpdates[key] = normalizeHotmailAccounts(updates[key]);
-      } else {
-        persistedUpdates[key] = updates[key];
-      }
-    }
-  }
+  const persistedUpdates = buildPersistentSettingsPayload(updates);
 
   if (Object.keys(persistedUpdates).length > 0) {
     await chrome.storage.local.set(persistedUpdates);
   }
+}
+
+function buildSettingsExportFilename(date = new Date()) {
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${SETTINGS_EXPORT_FILENAME_PREFIX}-${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}.json`;
+}
+
+async function exportSettingsBundle() {
+  const settings = await getPersistedSettings();
+  const bundle = {
+    schemaVersion: SETTINGS_EXPORT_SCHEMA_VERSION,
+    exportedAt: new Date().toISOString(),
+    extensionVersion: chrome.runtime.getManifest().version,
+    settings,
+  };
+
+  return {
+    fileName: buildSettingsExportFilename(),
+    fileContent: JSON.stringify(bundle, null, 2),
+  };
+}
+
+async function importSettingsBundle(configBundle) {
+  const state = await ensureManualInteractionAllowed('\u5bfc\u5165\u914d\u7f6e');
+  if (Object.values(state.stepStatuses || {}).some((status) => status === 'running')) {
+    throw new Error('\u5f53\u524d\u6709\u6b65\u9aa4\u6b63\u5728\u6267\u884c\uff0c\u65e0\u6cd5\u5bfc\u5165\u914d\u7f6e\u3002');
+  }
+  if (!configBundle || typeof configBundle !== 'object' || Array.isArray(configBundle)) {
+    throw new Error('\u914d\u7f6e\u6587\u4ef6\u5185\u5bb9\u65e0\u6548\u3002');
+  }
+
+  const schemaVersion = Number(configBundle.schemaVersion);
+  if (schemaVersion !== SETTINGS_EXPORT_SCHEMA_VERSION) {
+    throw new Error(`\u4ec5\u652f\u6301\u5bfc\u5165 schemaVersion=${SETTINGS_EXPORT_SCHEMA_VERSION} \u7684\u914d\u7f6e\u6587\u4ef6\u3002`);
+  }
+  if (!configBundle.settings || typeof configBundle.settings !== 'object' || Array.isArray(configBundle.settings)) {
+    throw new Error('\u914d\u7f6e\u6587\u4ef6\u7f3a\u5c11 settings \u914d\u7f6e\u6bb5\u3002');
+  }
+
+  const importedSettings = buildPersistentSettingsPayload(configBundle.settings, {
+    fillDefaults: true,
+    requireKnownKeys: true,
+  });
+
+  await setPersistentSettings(importedSettings);
+
+  const sessionUpdates = {
+    ...importedSettings,
+    currentHotmailAccountId: null,
+  };
+  if (importedSettings.mailProvider === HOTMAIL_PROVIDER) {
+    sessionUpdates.email = null;
+  }
+
+  await setState(sessionUpdates);
+  broadcastDataUpdate({
+    ...importedSettings,
+    currentHotmailAccountId: null,
+    ...(sessionUpdates.email !== undefined ? { email: sessionUpdates.email } : {}),
+  });
+
+  return getState();
 }
 
 function broadcastDataUpdate(payload) {
@@ -2459,30 +2607,19 @@ async function handleMessage(message, sender) {
     }
 
     case 'SAVE_SETTING': {
-      const updates = {};
-      if (message.payload.panelMode !== undefined) updates.panelMode = message.payload.panelMode;
-      if (message.payload.vpsUrl !== undefined) updates.vpsUrl = message.payload.vpsUrl;
-      if (message.payload.vpsPassword !== undefined) updates.vpsPassword = message.payload.vpsPassword;
-      if (message.payload.localCpaStep9Mode !== undefined) updates.localCpaStep9Mode = normalizeLocalCpaStep9Mode(message.payload.localCpaStep9Mode);
-      if (message.payload.sub2apiUrl !== undefined) updates.sub2apiUrl = message.payload.sub2apiUrl;
-      if (message.payload.sub2apiEmail !== undefined) updates.sub2apiEmail = message.payload.sub2apiEmail;
-      if (message.payload.sub2apiPassword !== undefined) updates.sub2apiPassword = message.payload.sub2apiPassword;
-      if (message.payload.sub2apiGroupName !== undefined) updates.sub2apiGroupName = message.payload.sub2apiGroupName;
-      if (message.payload.customPassword !== undefined) updates.customPassword = message.payload.customPassword;
-      if (message.payload.autoRunSkipFailures !== undefined) updates.autoRunSkipFailures = Boolean(message.payload.autoRunSkipFailures);
-      if (message.payload.autoRunDelayEnabled !== undefined) updates.autoRunDelayEnabled = Boolean(message.payload.autoRunDelayEnabled);
-      if (message.payload.autoRunDelayMinutes !== undefined) updates.autoRunDelayMinutes = normalizeAutoRunDelayMinutes(message.payload.autoRunDelayMinutes);
-      if (message.payload.mailProvider !== undefined) updates.mailProvider = message.payload.mailProvider;
-      if (message.payload.emailGenerator !== undefined) updates.emailGenerator = normalizeEmailGenerator(message.payload.emailGenerator);
-      if (message.payload.inbucketHost !== undefined) updates.inbucketHost = message.payload.inbucketHost;
-      if (message.payload.inbucketMailbox !== undefined) updates.inbucketMailbox = message.payload.inbucketMailbox;
-      if (message.payload.cloudflareDomain !== undefined) updates.cloudflareDomain = normalizeCloudflareDomain(message.payload.cloudflareDomain);
-      if (message.payload.cloudflareDomains !== undefined) updates.cloudflareDomains = Array.isArray(message.payload.cloudflareDomains)
-        ? message.payload.cloudflareDomains.map(domain => normalizeCloudflareDomain(domain)).filter(Boolean)
-        : [];
+      const updates = buildPersistentSettingsPayload(message.payload || {});
       await setPersistentSettings(updates);
       await setState(updates);
       return { ok: true };
+    }
+
+    case 'EXPORT_SETTINGS': {
+      return { ok: true, ...(await exportSettingsBundle()) };
+    }
+
+    case 'IMPORT_SETTINGS': {
+      const state = await importSettingsBundle(message.payload?.config || null);
+      return { ok: true, state };
     }
 
     case 'UPSERT_HOTMAIL_ACCOUNT': {

@@ -35,6 +35,12 @@ const autoScheduleMeta = document.getElementById('auto-schedule-meta');
 const btnAutoRunNow = document.getElementById('btn-auto-run-now');
 const btnAutoCancelSchedule = document.getElementById('btn-auto-cancel-schedule');
 const btnClearLog = document.getElementById('btn-clear-log');
+const configMenuShell = document.getElementById('config-menu-shell');
+const btnConfigMenu = document.getElementById('btn-config-menu');
+const configMenu = document.getElementById('config-menu');
+const btnExportSettings = document.getElementById('btn-export-settings');
+const btnImportSettings = document.getElementById('btn-import-settings');
+const inputImportSettingsFile = document.getElementById('input-import-settings-file');
 const selectPanelMode = document.getElementById('select-panel-mode');
 const rowVpsUrl = document.getElementById('row-vps-url');
 const inputVpsUrl = document.getElementById('input-vps-url');
@@ -120,6 +126,8 @@ let currentModalActions = [];
 let scheduledCountdownTimer = null;
 let hotmailActionInFlight = false;
 let hotmailListExpanded = false;
+let configMenuOpen = false;
+let configActionInFlight = false;
 
 const EYE_OPEN_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>';
 const EYE_CLOSED_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19C5 19 1 12 1 12a21.77 21.77 0 0 1 5.06-6.94"/><path d="M9.9 4.24A10.94 10.94 0 0 1 12 5c7 0 11 7 11 7a21.86 21.86 0 0 1-2.16 3.19"/><path d="M1 1l22 22"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>';
@@ -256,6 +264,71 @@ async function openConfirmModal({ title, message, confirmLabel = '确认', confi
     ],
   });
   return choice === 'confirm';
+}
+
+function updateConfigMenuControls() {
+  const disabled = configActionInFlight || settingsSaveInFlight;
+  const importLocked = disabled
+    || currentAutoRun.autoRunning
+    || Object.values(getStepStatuses()).some((status) => status === 'running');
+  if (btnConfigMenu) {
+    btnConfigMenu.disabled = disabled;
+    btnConfigMenu.setAttribute('aria-expanded', String(configMenuOpen));
+  }
+  if (configMenu) {
+    configMenu.hidden = !configMenuOpen;
+  }
+  if (btnExportSettings) {
+    btnExportSettings.disabled = disabled;
+  }
+  if (btnImportSettings) {
+    btnImportSettings.disabled = importLocked;
+  }
+}
+
+function closeConfigMenu() {
+  configMenuOpen = false;
+  updateConfigMenuControls();
+}
+
+function openConfigMenu() {
+  configMenuOpen = true;
+  updateConfigMenuControls();
+}
+
+function toggleConfigMenu() {
+  configMenuOpen ? closeConfigMenu() : openConfigMenu();
+}
+
+async function waitForSettingsSaveIdle() {
+  while (settingsSaveInFlight) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+async function flushPendingSettingsBeforeExport() {
+  clearTimeout(settingsAutoSaveTimer);
+  await waitForSettingsSaveIdle();
+  if (settingsDirty) {
+    await saveSettings({ silent: true });
+  }
+}
+
+async function settlePendingSettingsBeforeImport() {
+  clearTimeout(settingsAutoSaveTimer);
+  await waitForSettingsSaveIdle();
+}
+
+function downloadTextFile(content, fileName, mimeType = 'application/json;charset=utf-8') {
+  const blob = new Blob([content], { type: mimeType });
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
 }
 
 function isDoneStatus(status) {
@@ -600,6 +673,7 @@ function markSettingsDirty(isDirty = true) {
 
 function updateSaveButtonState() {
   btnSaveSettings.disabled = settingsSaveInFlight || !settingsDirty;
+  updateConfigMenuControls();
   btnSaveSettings.textContent = settingsSaveInFlight ? '保存中' : '保存';
 }
 
@@ -707,6 +781,7 @@ function applyAutoRunStatus(payload = currentAutoRun) {
   updateAutoDelayInputState();
   syncScheduledCountdownTicker();
   updateStopButtonState(scheduled || paused || locked || Object.values(getStepStatuses()).some(status => status === 'running'));
+  updateConfigMenuControls();
 }
 
 function initializeManualStepActions() {
@@ -744,11 +819,45 @@ function initializeManualStepActions() {
 // State Restore on load
 // ============================================================
 
+function applySettingsState(state) {
+  syncLatestState(state);
+  syncAutoRunState(state);
+
+  inputEmail.value = state?.email || '';
+  syncPasswordField(state || {});
+  inputVpsUrl.value = state?.vpsUrl || '';
+  inputVpsPassword.value = state?.vpsPassword || '';
+  setLocalCpaStep9Mode(state?.localCpaStep9Mode);
+  selectPanelMode.value = state?.panelMode || 'cpa';
+  inputSub2ApiUrl.value = state?.sub2apiUrl || '';
+  inputSub2ApiEmail.value = state?.sub2apiEmail || '';
+  inputSub2ApiPassword.value = state?.sub2apiPassword || '';
+  inputSub2ApiGroup.value = state?.sub2apiGroupName || '';
+  selectMailProvider.value = state?.mailProvider || '163';
+  selectEmailGenerator.value = state?.emailGenerator || 'duck';
+  inputInbucketHost.value = state?.inbucketHost || '';
+  inputInbucketMailbox.value = state?.inbucketMailbox || '';
+  renderCloudflareDomainOptions(state?.cloudflareDomain || '');
+  setCloudflareDomainEditMode(false, { clearInput: true });
+  inputAutoSkipFailures.checked = Boolean(state?.autoRunSkipFailures);
+  inputAutoDelayEnabled.checked = Boolean(state?.autoRunDelayEnabled);
+  inputAutoDelayMinutes.value = String(normalizeAutoDelayMinutes(state?.autoRunDelayMinutes));
+  if (state?.autoRunTotalRuns) {
+    inputRunCount.value = String(state.autoRunTotalRuns);
+  }
+
+  applyAutoRunStatus(state);
+  markSettingsDirty(false);
+  updateAutoDelayInputState();
+  updatePanelModeUI();
+  updateMailProviderUI();
+  updateButtonStates();
+}
+
 async function restoreState() {
   try {
     const state = await chrome.runtime.sendMessage({ type: 'GET_STATE', source: 'sidepanel' });
-    syncLatestState(state);
-    syncAutoRunState(state);
+    applySettingsState(state);
 
     if (state.oauthUrl) {
       displayOauthUrl.textContent = state.oauthUrl;
@@ -758,53 +867,6 @@ async function restoreState() {
       displayLocalhostUrl.textContent = state.localhostUrl;
       displayLocalhostUrl.classList.add('has-value');
     }
-    if (state.email) {
-      inputEmail.value = state.email;
-    }
-    syncPasswordField(state);
-    if (state.vpsUrl) {
-      inputVpsUrl.value = state.vpsUrl;
-    }
-    if (state.vpsPassword) {
-      inputVpsPassword.value = state.vpsPassword;
-    }
-    setLocalCpaStep9Mode(state.localCpaStep9Mode);
-    if (state.panelMode) {
-      selectPanelMode.value = state.panelMode;
-    }
-    if (state.sub2apiUrl) {
-      inputSub2ApiUrl.value = state.sub2apiUrl;
-    }
-    if (state.sub2apiEmail) {
-      inputSub2ApiEmail.value = state.sub2apiEmail;
-    }
-    if (state.sub2apiPassword) {
-      inputSub2ApiPassword.value = state.sub2apiPassword;
-    }
-    if (state.sub2apiGroupName) {
-      inputSub2ApiGroup.value = state.sub2apiGroupName;
-    }
-    if (state.mailProvider) {
-      selectMailProvider.value = state.mailProvider;
-    }
-    if (state.emailGenerator) {
-      selectEmailGenerator.value = state.emailGenerator;
-    }
-    if (state.inbucketHost) {
-      inputInbucketHost.value = state.inbucketHost;
-    }
-    if (state.inbucketMailbox) {
-      inputInbucketMailbox.value = state.inbucketMailbox;
-    }
-    renderCloudflareDomainOptions(state.cloudflareDomain || '');
-    setCloudflareDomainEditMode(false, { clearInput: true });
-    inputAutoSkipFailures.checked = Boolean(state.autoRunSkipFailures);
-    inputAutoDelayEnabled.checked = Boolean(state.autoRunDelayEnabled);
-    inputAutoDelayMinutes.value = String(normalizeAutoDelayMinutes(state.autoRunDelayMinutes));
-    if (state.autoRunTotalRuns) {
-      inputRunCount.value = String(state.autoRunTotalRuns);
-    }
-
     if (state.stepStatuses) {
       for (const [step, status] of Object.entries(state.stepStatuses)) {
         updateStepUI(Number(step), status);
@@ -817,14 +879,8 @@ async function restoreState() {
       }
     }
 
-    applyAutoRunStatus(state);
-    markSettingsDirty(false);
-    updateAutoDelayInputState();
     updateStatusDisplay(latestState);
     updateProgressCounter();
-    updatePanelModeUI();
-    updateMailProviderUI();
-    updateButtonStates();
   } catch (err) {
     console.error('Failed to restore state:', err);
   }
@@ -1177,6 +1233,7 @@ function updateStepUI(step, status) {
 
   updateButtonStates();
   updateProgressCounter();
+  updateConfigMenuControls();
 }
 
 function updateProgressCounter() {
@@ -1395,6 +1452,93 @@ async function copyTextToClipboard(text) {
     throw new Error('当前环境不支持剪贴板复制。');
   }
   await navigator.clipboard.writeText(value);
+}
+
+async function exportSettingsFile() {
+  closeConfigMenu();
+  configActionInFlight = true;
+  updateConfigMenuControls();
+
+  try {
+    await flushPendingSettingsBeforeExport();
+    const response = await chrome.runtime.sendMessage({
+      type: 'EXPORT_SETTINGS',
+      source: 'sidepanel',
+      payload: {},
+    });
+
+    if (response?.error) {
+      throw new Error(response.error);
+    }
+    if (!response?.fileContent || !response?.fileName) {
+      throw new Error('\u672a\u751f\u6210\u53ef\u4e0b\u8f7d\u7684\u914d\u7f6e\u6587\u4ef6\u3002');
+    }
+
+    downloadTextFile(response.fileContent, response.fileName);
+    showToast('\u914d\u7f6e\u5df2\u5bfc\u51fa\uff1a' + response.fileName, 'success', 2200);
+  } catch (err) {
+    showToast('\u5bfc\u51fa\u914d\u7f6e\u5931\u8d25\uff1a' + err.message, 'error');
+  } finally {
+    configActionInFlight = false;
+    updateConfigMenuControls();
+  }
+}
+
+async function importSettingsFromFile(file) {
+  if (!file) return;
+
+  configActionInFlight = true;
+  closeConfigMenu();
+  updateConfigMenuControls();
+
+  try {
+    await settlePendingSettingsBeforeImport();
+    const rawText = await file.text();
+
+    let parsedConfig = null;
+    try {
+      parsedConfig = JSON.parse(rawText);
+    } catch {
+      throw new Error('\u914d\u7f6e\u6587\u4ef6\u4e0d\u662f\u6709\u6548\u7684 JSON\u3002');
+    }
+
+    const confirmed = await openConfirmModal({
+      title: '\u5bfc\u5165\u914d\u7f6e',
+      message: '\u786e\u8ba4\u5bfc\u5165\u914d\u7f6e\u6587\u4ef6 "' + file.name + '" \u5417\uff1f\u5bfc\u5165\u540e\u4f1a\u8986\u76d6\u5f53\u524d\u914d\u7f6e\u3002',
+      confirmLabel: '\u786e\u8ba4\u8986\u76d6\u5bfc\u5165',
+      confirmVariant: 'btn-danger',
+    });
+    if (!confirmed) {
+      return;
+    }
+
+    const response = await chrome.runtime.sendMessage({
+      type: 'IMPORT_SETTINGS',
+      source: 'sidepanel',
+      payload: {
+        config: parsedConfig,
+      },
+    });
+
+    if (response?.error) {
+      throw new Error(response.error);
+    }
+    if (!response?.state) {
+      throw new Error('\u5bfc\u5165\u540e\u672a\u8fd4\u56de\u6700\u65b0\u914d\u7f6e\u72b6\u6001\u3002');
+    }
+
+    applySettingsState(response.state);
+    updateStatusDisplay(latestState);
+    showToast('\u914d\u7f6e\u5df2\u5bfc\u5165\uff0c\u5f53\u524d\u914d\u7f6e\u5df2\u8986\u76d6\u3002', 'success', 2200);
+  } catch (err) {
+    showToast('\u5bfc\u5165\u914d\u7f6e\u5931\u8d25\uff1a' + err.message, 'error');
+  } finally {
+    configActionInFlight = false;
+    updateConfigMenuControls();
+    if (inputImportSettingsFile) {
+      inputImportSettingsFile.value = '';
+    }
+  }
 }
 
 async function deleteHotmailAccountsByMode(mode) {
@@ -1836,6 +1980,38 @@ btnStop.addEventListener('click', async () => {
   btnStop.disabled = true;
   await chrome.runtime.sendMessage({ type: 'STOP_FLOW', source: 'sidepanel', payload: {} });
   showToast(isAutoRunScheduledPhase() ? '正在取消倒计时计划...' : '正在停止当前流程...', 'warn', 2000);
+});
+
+btnConfigMenu?.addEventListener('click', (event) => {
+  event.stopPropagation();
+  toggleConfigMenu();
+});
+
+configMenu?.addEventListener('click', (event) => {
+  event.stopPropagation();
+});
+
+btnExportSettings?.addEventListener('click', async () => {
+  if (configActionInFlight || settingsSaveInFlight) {
+    return;
+  }
+  await exportSettingsFile();
+});
+
+btnImportSettings?.addEventListener('click', async () => {
+  if (configActionInFlight || settingsSaveInFlight) {
+    return;
+  }
+  closeConfigMenu();
+  if (inputImportSettingsFile) {
+    inputImportSettingsFile.value = '';
+    inputImportSettingsFile.click();
+  }
+});
+
+inputImportSettingsFile?.addEventListener('change', async () => {
+  const file = inputImportSettingsFile.files?.[0] || null;
+  await importSettingsFromFile(file);
 });
 
 autoStartModal?.addEventListener('click', (event) => {
@@ -2280,6 +2456,22 @@ btnTheme.addEventListener('click', () => {
   setTheme(current === 'dark' ? 'light' : 'dark');
 });
 
+document.addEventListener('click', (event) => {
+  if (!configMenuOpen) {
+    return;
+  }
+  if (configMenuShell?.contains(event.target)) {
+    return;
+  }
+  closeConfigMenu();
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && configMenuOpen) {
+    closeConfigMenu();
+  }
+});
+
 // ============================================================
 // Init
 // ============================================================
@@ -2288,6 +2480,7 @@ initializeManualStepActions();
 initTheme();
 initHotmailListExpandedState();
 updateSaveButtonState();
+updateConfigMenuControls();
 setLocalCpaStep9Mode(DEFAULT_LOCAL_CPA_STEP9_MODE);
 restoreState().then(() => {
   syncPasswordToggleLabel();

@@ -58,6 +58,14 @@
           <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
         </svg>
       </button>
+      <div id="config-menu-shell" class="header-menu">
+        <button id="btn-config-menu" class="btn btn-ghost btn-sm header-config-btn" type="button" aria-haspopup="menu"
+          aria-expanded="false">配置</button>
+        <div id="config-menu" class="header-dropdown" role="menu" aria-labelledby="btn-config-menu" hidden>
+          <button id="btn-export-settings" class="header-dropdown-item" type="button" role="menuitem">导出配置</button>
+          <button id="btn-import-settings" class="header-dropdown-item" type="button" role="menuitem">导入配置</button>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -343,6 +351,7 @@
   </div>
 
   <div id="toast-container"></div>
+  <input id="input-import-settings-file" type="file" accept=".json,application/json" hidden />
   <script src="../hotmail-utils.js"></script>
   <script src="sidepanel.js"></script>
 </body>
