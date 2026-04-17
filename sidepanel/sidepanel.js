@@ -1061,6 +1061,10 @@ function getActiveAutoRunCountdown() {
     };
   }
 
+  if (currentAutoRun.phase !== 'waiting_interval') {
+    return null;
+  }
+
   if (!Number.isFinite(currentAutoRun.countdownAt)) {
     return null;
   }
