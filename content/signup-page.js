@@ -1913,10 +1913,18 @@ async function step6SwitchToOneTimeCodeLogin(snapshot) {
 
 async function step6LoginFromPasswordPage(payload, snapshot) {
   const currentSnapshot = normalizeStep6Snapshot(snapshot || inspectLoginAuthState());
+  const hasPassword = Boolean(String(payload?.password || '').trim());
 
   if (currentSnapshot.passwordInput) {
-    if (!payload.password) {
-      throw new Error('登录时缺少密码，步骤 7 无法继续。');
+    if (!hasPassword) {
+      if (currentSnapshot.switchTrigger) {
+        log('步骤 7：当前未提供密码，改走一次性验证码登录。', 'warn');
+        return step6SwitchToOneTimeCodeLogin(currentSnapshot);
+      }
+
+      return createStep6RecoverableResult('missing_password_and_one_time_code_trigger', currentSnapshot, {
+        message: '登录时未提供密码，且当前页面没有可用的一次性验证码登录入口。',
+      });
     }
 
     log('步骤 7：已进入密码页，准备填写密码...');

@@ -458,8 +458,7 @@ return { refreshOAuthUrlBeforeStep6 };
 
   assert.equal(oauthUrl, 'https://auth.example.com/oauth?state=oauth-state-001');
   assert.deepStrictEqual(calls, [
-    { type: 'log', message: '步骤 7：contributionMode=true，正在通过公开贡献接口申请 OAuth 链接...' },
-    { type: 'log', message: '步骤 7：贡献模式正在申请贡献登录地址...' },
+    { type: 'log', message: '步骤 7：contributionMode=true，走公开贡献接口，正在申请 OAuth 登录地址...' },
     {
       type: 'contribution',
       options: {
@@ -476,6 +475,63 @@ return { refreshOAuthUrlBeforeStep6 };
       step: 1,
       payload: {
         oauthUrl: 'https://auth.example.com/oauth?state=oauth-state-001',
+      },
+    },
+  ]);
+
+  delete globalThis.addLog;
+  delete globalThis.contributionOAuthManager;
+  delete globalThis.handleStepData;
+  delete globalThis.getPanelModeLabel;
+  delete globalThis.requestOAuthUrlFromPanel;
+  delete globalThis.LOG_PREFIX;
+});
+
+test('refreshOAuthUrlBeforeStep6 logs the normal CPA/SUB2API path explicitly when contributionMode=false', async () => {
+  const bundle = extractFunction(backgroundSource, 'refreshOAuthUrlBeforeStep6');
+  const calls = [];
+
+  const api = new Function(`
+${bundle}
+return { refreshOAuthUrlBeforeStep6 };
+`)();
+
+  globalThis.addLog = async (message) => {
+    calls.push({ type: 'log', message });
+  };
+  globalThis.contributionOAuthManager = {
+    async startContributionFlow() {
+      calls.push({ type: 'contribution' });
+      return {
+        contributionAuthUrl: 'https://auth.example.com/oauth?state=unexpected',
+      };
+    },
+  };
+  globalThis.handleStepData = async (step, payload) => {
+    calls.push({ type: 'step', step, payload });
+  };
+  globalThis.getPanelModeLabel = () => 'SUB2API';
+  globalThis.requestOAuthUrlFromPanel = async () => {
+    calls.push({ type: 'panel' });
+    return { oauthUrl: 'https://panel.example.com/oauth' };
+  };
+  globalThis.LOG_PREFIX = '[test]';
+
+  const oauthUrl = await api.refreshOAuthUrlBeforeStep6({
+    contributionMode: false,
+    panelMode: 'sub2api',
+    email: 'user@example.com',
+  });
+
+  assert.equal(oauthUrl, 'https://panel.example.com/oauth');
+  assert.deepStrictEqual(calls, [
+    { type: 'log', message: '步骤 7：contributionMode=false，走普通 CPA / SUB2API 链路（当前面板：SUB2API），正在刷新 OAuth 登录地址...' },
+    { type: 'panel' },
+    {
+      type: 'step',
+      step: 1,
+      payload: {
+        oauthUrl: 'https://panel.example.com/oauth',
       },
     },
   ]);

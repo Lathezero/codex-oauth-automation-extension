@@ -6600,11 +6600,10 @@ async function runPreStep6CookieCleanup() {
 
 async function refreshOAuthUrlBeforeStep6(state) {
   if (state?.contributionModeExpected && !state?.contributionMode) {
-    throw new Error('步骤 7：当前自动流程预期使用贡献模式，但运行态 contributionMode 已丢失，已阻止回退到普通 CPA 面板。请重新进入贡献模式后再点击自动。');
+    throw new Error('步骤 7：当前自动流程预期使用贡献模式，但运行态 contributionMode 已丢失，已阻止回退到普通 CPA / SUB2API 链路。请重新进入贡献模式后再点击自动。');
   }
   if (state?.contributionMode && contributionOAuthManager?.startContributionFlow) {
-    await addLog('步骤 7：contributionMode=true，正在通过公开贡献接口申请 OAuth 链接...', 'info');
-    await addLog('步骤 7：贡献模式正在申请贡献登录地址...');
+    await addLog('步骤 7：contributionMode=true，走公开贡献接口，正在申请 OAuth 登录地址...', 'info');
     const contributionState = await contributionOAuthManager.startContributionFlow({
       nickname: state.email,
       openAuthTab: false,
@@ -6617,8 +6616,7 @@ async function refreshOAuthUrlBeforeStep6(state) {
     await handleStepData(1, { oauthUrl });
     return oauthUrl;
   }
-  await addLog(`步骤 7：正在刷新登录用的 ${getPanelModeLabel(state)} OAuth 链接...`);
-  await addLog(`步骤 7：contributionMode=${Boolean(state?.contributionMode)}，当前将回退到 ${getPanelModeLabel(state)} 面板刷新 OAuth。`, 'warn');
+  await addLog(`步骤 7：contributionMode=false，走普通 CPA / SUB2API 链路（当前面板：${getPanelModeLabel(state)}），正在刷新 OAuth 登录地址...`, 'info');
   console.log(LOG_PREFIX, '[refreshOAuthUrlBeforeStep6] requesting fresh OAuth directly from panel');
   const refreshResult = await requestOAuthUrlFromPanel(state, { logLabel: '步骤 7' });
   await handleStepData(1, refreshResult);
