@@ -446,7 +446,7 @@
       const targetUrl = forceRelogin ? MAIL2925_LOGIN_URL : MAIL2925_URL;
       await addLog(
         forceRelogin
-          ? `2925：准备打开登录页 ${MAIL2925_LOGIN_URL}（forceRelogin=true）`
+          ? `2925：准备打开登录页 ${MAIL2925_LOGIN_URL}（强制重登录）`
           : `2925：准备打开邮箱页 ${MAIL2925_URL}（登录页自动登录=${allowLoginWhenOnLoginPage ? '开启' : '关闭'}）`,
         'info'
       );
@@ -467,7 +467,7 @@
           (url) => isMail2925LoginUrl(url),
           { timeoutMs: 15000, retryDelayMs: 300 }
         );
-        await addLog(`2925：等待最终落到登录页结果：${matchedLoginTab?.url || 'timeout'}`, matchedLoginTab ? 'info' : 'warn');
+        await addLog(`2925：等待最终落到登录页结果：${matchedLoginTab?.url || '超时'}`, matchedLoginTab ? 'info' : 'warn');
         if (matchedLoginTab?.url) {
           openedUrl = String(matchedLoginTab.url || '').trim();
         }

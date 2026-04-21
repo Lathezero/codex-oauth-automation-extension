@@ -376,7 +376,10 @@ async function syncSelectedMail2925PoolAccount(options = {}) {
     throw new Error(response.error);
   }
 
-  syncLatestState({ currentMail2925AccountId: response.account?.id || accountId });
+  syncLatestState({
+    currentMail2925AccountId: response.account?.id || accountId,
+    ...(response.account?.email ? { mail2925BaseEmail: String(response.account.email).trim() } : {}),
+  });
   setManagedAliasBaseEmailInputForProvider('2925', latestState);
   if (!silent) {
     showToast(`已切换当前 2925 号池邮箱为 ${response.account?.email || accountId}`, 'success', 1800);
@@ -2430,6 +2433,24 @@ function getCurrentMail2925Email(state = latestState) {
   return String(getCurrentMail2925Account(state)?.email || '').trim();
 }
 
+function syncMail2925BaseEmailFromCurrentAccount(state = latestState, options = {}) {
+  const { persist = false } = options;
+  if (!isMail2925AccountPoolEnabled(state)) {
+    return false;
+  }
+
+  const currentEmail = getCurrentMail2925Email(state);
+  if (!currentEmail || currentEmail === String(state?.mail2925BaseEmail || '').trim()) {
+    return false;
+  }
+
+  syncLatestState({ mail2925BaseEmail: currentEmail });
+  if (persist) {
+    saveSettings({ silent: true }).catch(() => {});
+  }
+  return true;
+}
+
 function getCurrentLuckmailPurchase(state = latestState) {
   return state?.currentLuckmailPurchase || null;
 }
@@ -3158,6 +3179,7 @@ const mail2925Manager = window.SidepanelMail2925Manager?.createMail2925Manager({
     getMail2925Accounts,
     openConfirmModal,
     refreshManagedAliasBaseEmail: () => {
+      syncMail2925BaseEmailFromCurrentAccount(latestState, { persist: true });
       setManagedAliasBaseEmailInputForProvider('2925', latestState);
     },
     showToast,
