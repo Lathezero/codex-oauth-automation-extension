@@ -168,6 +168,10 @@
       }
     }
 
+    function normalizeMailboxEmail(value = '') {
+      return String(value || '').trim().toLowerCase();
+    }
+
     async function setCurrentMail2925Account(accountId, options = {}) {
       const { logMessage = '', updateLastUsedAt = false } = options;
       const state = await getState();
@@ -401,10 +405,13 @@
         forceRelogin = false,
         actionLabel = '确保 2925 邮箱登录态',
         allowLoginWhenOnLoginPage = true,
+        expectedMailboxEmail = '',
       } = options;
 
+      const normalizedExpectedMailboxEmail = normalizeMailboxEmail(expectedMailboxEmail);
+
       let account = null;
-      if (forceRelogin) {
+      if (forceRelogin || (allowLoginWhenOnLoginPage && normalizedExpectedMailboxEmail)) {
         account = await ensureMail2925AccountForFlow({
           allowAllocate: true,
           preferredAccountId: accountId,
@@ -481,16 +488,16 @@
         }
       }
 
-      if (!forceRelogin && !isMail2925LoginUrl(openedUrl)) {
+      if (!forceRelogin && !isMail2925LoginUrl(openedUrl) && !normalizedExpectedMailboxEmail) {
         await addLog('2925：当前邮箱页未跳转到登录页，将直接复用已登录会话。', 'info');
         return buildSuccessPayload();
       }
 
-      if (!forceRelogin && !allowLoginWhenOnLoginPage) {
+      if (!forceRelogin && isMail2925LoginUrl(openedUrl) && !allowLoginWhenOnLoginPage) {
         await failMailboxSession(`2925：${actionLabel}失败，当前页面已跳转到登录页，且当前未启用 2925 账号池，不执行自动登录。`);
       }
 
-      if (!account) {
+      if (!account && (forceRelogin || allowLoginWhenOnLoginPage)) {
         account = await ensureMail2925AccountForFlow({
           allowAllocate: true,
           preferredAccountId: accountId,
@@ -523,9 +530,10 @@
             step: 0,
             source: 'background',
             payload: {
-              email: account.email,
-              password: account.password,
+              email: account?.email || '',
+              password: account?.password || '',
               forceLogin: forceRelogin,
+              allowLoginWhenOnLoginPage,
             },
           },
           {
@@ -549,6 +557,28 @@
       }
       if (result?.limitReached) {
         throw new Error(`${MAIL2925_LIMIT_ERROR_PREFIX}${result.limitMessage || '子邮箱已达上限邮箱'}`);
+      }
+      const actualMailboxEmail = normalizeMailboxEmail(result?.mailboxEmail || '');
+      if (normalizedExpectedMailboxEmail && actualMailboxEmail && actualMailboxEmail !== normalizedExpectedMailboxEmail) {
+        if (allowLoginWhenOnLoginPage) {
+          await addLog(
+            `2925：当前邮箱页显示账号 ${actualMailboxEmail}，与目标账号 ${normalizedExpectedMailboxEmail} 不一致，准备登出当前账号并登录目标账号。`,
+            'warn'
+          );
+          return ensureMail2925MailboxSession({
+            accountId: account?.id || accountId || null,
+            forceRelogin: true,
+            allowLoginWhenOnLoginPage: true,
+            expectedMailboxEmail: normalizedExpectedMailboxEmail,
+            actionLabel,
+          });
+        }
+        await failMailboxSession(
+          `2925：${actionLabel}失败，当前邮箱页显示账号 ${actualMailboxEmail}，与目标账号 ${normalizedExpectedMailboxEmail} 不一致，且当前未启用 2925 账号池。`
+        );
+      }
+      if (normalizedExpectedMailboxEmail && !actualMailboxEmail && result?.currentView === 'mailbox') {
+        await addLog('2925：未能识别当前邮箱页顶部邮箱地址，已跳过邮箱一致性校验。', 'warn');
       }
       if (!result?.loggedIn) {
         await failMailboxSession(`2925：${actionLabel}失败，登录后仍未进入收件箱。`);

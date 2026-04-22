@@ -176,6 +176,8 @@ const inputAccountRunHistoryHelperBaseUrl = { value: '' };
 const inputMail2925UseAccountPool = { checked: true };
 const inputInbucketHost = { value: '' };
 const inputInbucketMailbox = { value: '' };
+const inputHotmailRemoteBaseUrl = { value: '' };
+const inputHotmailLocalBaseUrl = { value: '' };
 const inputLuckmailApiKey = { value: '' };
 const inputLuckmailBaseUrl = { value: '' };
 const selectLuckmailEmailType = { value: 'ms_graph' };
@@ -184,6 +186,13 @@ const inputTempEmailBaseUrl = { value: '' };
 const inputTempEmailAdminAuth = { value: '' };
 const inputTempEmailCustomAuth = { value: '' };
 const inputTempEmailReceiveMailbox = { value: '' };
+const inputAutoSkipFailures = { checked: false };
+const inputAutoSkipFailuresThreadIntervalMinutes = { value: '0' };
+const inputAutoDelayEnabled = { checked: false };
+const inputAutoDelayMinutes = { value: '30' };
+const inputAutoStepDelaySeconds = { value: '' };
+const inputVerificationResendCount = { value: '4' };
+const DEFAULT_VERIFICATION_RESEND_COUNT = 4;
 function getCloudflareDomainsFromState() {
   return { domains: [], activeDomain: '' };
 }
@@ -203,6 +212,10 @@ function normalizeLuckmailEmailType(value) { return String(value || '').trim() |
 function normalizeCloudflareTempEmailBaseUrlValue(value) { return String(value || '').trim(); }
 function normalizeCloudflareTempEmailReceiveMailboxValue(value) { return String(value || '').trim(); }
 function normalizeAccountRunHistoryHelperBaseUrlValue(value) { return String(value || '').trim(); }
+function normalizeAutoRunThreadIntervalMinutes(value) { return Number(value) || 0; }
+function normalizeAutoDelayMinutes(value) { return Number(value) || 30; }
+function normalizeAutoStepDelaySeconds(value) { return value === '' ? null : Number(value); }
+function normalizeVerificationResendCount(value, fallback) { return Number(value) || fallback; }
 ${bundle}
 return { collectSettingsPayload };
 `)();

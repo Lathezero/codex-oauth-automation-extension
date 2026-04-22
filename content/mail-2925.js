@@ -515,8 +515,9 @@ function detectMail2925ViewState() {
     return { view: 'limit', limitMessage };
   }
 
-  if (findMailItems().length > 0) {
-    return { view: 'mailbox', limitMessage: '' };
+  const mailboxEmail = getMail2925DisplayedMailboxEmail();
+  if (findMailItems().length > 0 || mailboxEmail) {
+    return { view: 'mailbox', limitMessage: '', mailboxEmail };
   }
 
   if (findMail2925LoginPasswordInput() && findMail2925LoginEmailInput()) {
@@ -529,6 +530,62 @@ function detectMail2925ViewState() {
   }
 
   return { view: 'unknown', limitMessage: '' };
+}
+
+function getMail2925DisplayedMailboxEmail() {
+  const directSelectors = [
+    '[class*="user"] [class*="mail"]',
+    '[class*="user"] [class*="email"]',
+    '[class*="account"] [class*="mail"]',
+    '[class*="account"] [class*="email"]',
+    '[class*="header"] [class*="mail"]',
+    '[class*="header"] [class*="email"]',
+  ];
+
+  for (const selector of directSelectors) {
+    const candidates = document.querySelectorAll(selector);
+    for (const candidate of candidates) {
+      if (!isVisibleNode(candidate) || isMailItemNode(candidate)) {
+        continue;
+      }
+      const email = extractEmails(candidate.textContent || candidate.innerText || '')[0] || '';
+      if (email) {
+        return email;
+      }
+    }
+  }
+
+  const topCandidates = Array.from(document.querySelectorAll('body *'))
+    .filter((node) => {
+      if (!isVisibleNode(node) || isMailItemNode(node)) {
+        return false;
+      }
+      const rect = typeof node.getBoundingClientRect === 'function'
+        ? node.getBoundingClientRect()
+        : null;
+      if (!rect) return false;
+      return rect.top >= 0 && rect.top <= Math.max(window.innerHeight * 0.35, 280);
+    })
+    .map((node) => {
+      const email = extractEmails(node.textContent || node.innerText || '')[0] || '';
+      return { node, email };
+    })
+    .filter((entry) => entry.email);
+
+  if (!topCandidates.length) {
+    return '';
+  }
+
+  topCandidates.sort((left, right) => {
+    const leftRect = left.node.getBoundingClientRect();
+    const rightRect = right.node.getBoundingClientRect();
+    if (leftRect.top !== rightRect.top) {
+      return leftRect.top - rightRect.top;
+    }
+    return leftRect.left - rightRect.left;
+  });
+
+  return topCandidates[0]?.email || '';
 }
 
 function isCheckboxChecked(node) {
@@ -873,6 +930,7 @@ async function ensureMail2925Session(payload = {}) {
   const email = String(payload?.email || '').trim();
   const password = String(payload?.password || '');
   const forceLogin = Boolean(payload?.forceLogin);
+  const allowLoginWhenOnLoginPage = payload?.allowLoginWhenOnLoginPage !== false;
   log(`步骤 0：2925 登录态检查开始，当前地址 ${location.href}，forceLogin=${forceLogin ? 'true' : 'false'}`, 'info');
 
   for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -893,9 +951,19 @@ async function ensureMail2925Session(payload = {}) {
         ok: true,
         loggedIn: true,
         currentView: 'mailbox',
+        mailboxEmail: currentState.mailboxEmail || '',
       };
     }
     if (currentState.view === 'login') {
+      if (!forceLogin && !allowLoginWhenOnLoginPage) {
+        return {
+          ok: false,
+          loggedIn: false,
+          currentView: 'login',
+          requiresLogin: true,
+          mailboxEmail: '',
+        };
+      }
       break;
     }
     await sleep(500);
@@ -908,6 +976,7 @@ async function ensureMail2925Session(payload = {}) {
       ok: true,
       loggedIn: true,
       currentView: 'mailbox',
+      mailboxEmail: loginState.mailboxEmail || '',
     };
   }
   if (loginState.view === 'limit') {
@@ -917,6 +986,15 @@ async function ensureMail2925Session(payload = {}) {
       currentView: 'limit',
       limitReached: true,
       limitMessage: loginState.limitMessage,
+    };
+  }
+  if (!forceLogin && !allowLoginWhenOnLoginPage && loginState.view === 'login') {
+    return {
+      ok: false,
+      loggedIn: false,
+      currentView: 'login',
+      requiresLogin: true,
+      mailboxEmail: '',
     };
   }
 
@@ -951,6 +1029,7 @@ async function ensureMail2925Session(payload = {}) {
     loggedIn: true,
     currentView: 'mailbox',
     usedCredentials: true,
+    mailboxEmail: finalState.mailboxEmail || getMail2925DisplayedMailboxEmail() || '',
   };
 }
 

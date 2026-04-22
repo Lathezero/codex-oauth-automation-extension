@@ -12,6 +12,61 @@ test('ensureMail2925Session waits 1 second after filling credentials before clic
   assert.match(source, /fillInput\(passwordInput,\s*password\);[\s\S]*?await sleep\(200\);[\s\S]*?await sleep\(1000\);[\s\S]*?simulateClick\(loginButton\);/);
 });
 
+test('detectMail2925ViewState treats top mailbox email as mailbox view', () => {
+  const bundle = [
+    extractFunction('normalizeNodeText'),
+    extractFunction('isVisibleNode'),
+    extractFunction('isMailItemNode'),
+    extractFunction('resolveActionTarget'),
+    extractFunction('findMailItems'),
+    extractFunction('extractEmails'),
+    extractFunction('getMail2925DisplayedMailboxEmail'),
+    extractFunction('detectMail2925ViewState'),
+  ].join('\n');
+
+  const api = new Function(`
+const MAIL_ITEM_SELECTORS = ['.mail-item'];
+const MAIL_ITEM_SELECTOR_GROUP = '.mail-item';
+const MAIL2925_REMEMBER_LOGIN_PATTERNS = [];
+const MAIL2925_AGREEMENT_PATTERNS = [];
+const document = {
+  querySelectorAll(selector) {
+    if (selector === '.mail-item') return [];
+    if (selector === 'body *') return [headerEmail];
+    if (selector.includes('[class*="user"]')) return [headerEmail];
+    return [];
+  },
+  body: {
+    innerText: 'QLHazycoder qlhazycoder@2925.com',
+    textContent: 'QLHazycoder qlhazycoder@2925.com',
+  },
+};
+const window = {
+  innerHeight: 900,
+  getComputedStyle() {
+    return { display: 'block', visibility: 'visible' };
+  },
+};
+const headerEmail = {
+  hidden: false,
+  textContent: 'qlhazycoder@2925.com',
+  innerText: 'qlhazycoder@2925.com',
+  getBoundingClientRect() { return { top: 40, left: 400, width: 120, height: 20 }; },
+  closest() { return null; },
+};
+function detectMail2925LimitMessage() { return ''; }
+function findMail2925LoginPasswordInput() { return null; }
+function findMail2925LoginEmailInput() { return null; }
+function getPageTextSample() { return 'qlhazycoder@2925.com'; }
+${bundle}
+return { detectMail2925ViewState };
+`)();
+
+  const state = api.detectMail2925ViewState();
+  assert.equal(state.view, 'mailbox');
+  assert.equal(state.mailboxEmail, 'qlhazycoder@2925.com');
+});
+
 function extractFunction(name) {
   const markers = [`async function ${name}(`, `function ${name}(`];
   const start = markers
