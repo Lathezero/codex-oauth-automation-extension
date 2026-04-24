@@ -78,6 +78,136 @@ test('generated email helper falls back to normal generator when 2925 is in rece
   ]);
 });
 
+test('generated email helper can read the requested address from custom email pool', async () => {
+  const api = loadGeneratedEmailHelpersApi();
+  const events = [];
+
+  const helpers = api.createGeneratedEmailHelpers({
+    addLog: async () => {},
+    buildGeneratedAliasEmail: () => {
+      throw new Error('should not build alias');
+    },
+    buildCloudflareTempEmailHeaders: () => ({}),
+    CLOUDFLARE_TEMP_EMAIL_GENERATOR: 'cloudflare-temp-email',
+    CUSTOM_EMAIL_POOL_GENERATOR: 'custom-pool',
+    DUCK_AUTOFILL_URL: 'https://duckduckgo.com/email',
+    fetch: async () => ({ ok: true, text: async () => '{}' }),
+    fetchIcloudHideMyEmail: async () => {
+      throw new Error('should not use icloud generator');
+    },
+    getCloudflareTempEmailAddressFromResponse: () => '',
+    getCloudflareTempEmailConfig: () => ({ baseUrl: '', adminAuth: '', domain: '' }),
+    getCustomEmailPoolEmail: (state, targetRun) => state.customEmailPool?.[targetRun - 1] || '',
+    getState: async () => ({
+      customEmailPool: ['first@example.com', 'second@example.com'],
+      emailGenerator: 'custom-pool',
+      mailProvider: 'gmail',
+    }),
+    ensureMail2925AccountForFlow: async () => {
+      throw new Error('should not allocate 2925 account');
+    },
+    joinCloudflareTempEmailUrl: () => '',
+    normalizeCloudflareDomain: () => '',
+    normalizeCloudflareTempEmailAddress: () => '',
+    normalizeEmailGenerator: (value) => String(value || '').trim().toLowerCase(),
+    isGeneratedAliasProvider: () => false,
+    reuseOrCreateTab: async () => {},
+    sendToContentScript: async () => {
+      throw new Error('should not open duck tab');
+    },
+    setEmailState: async (email) => {
+      events.push(['email', email]);
+    },
+    throwIfStopped: () => {},
+  });
+
+  const email = await helpers.fetchGeneratedEmail({
+    customEmailPool: ['first@example.com', 'second@example.com'],
+    emailGenerator: 'custom-pool',
+    mailProvider: 'gmail',
+  }, {
+    generator: 'custom-pool',
+    poolIndex: 1,
+  });
+
+  assert.equal(email, 'second@example.com');
+  assert.deepStrictEqual(events, [
+    ['email', 'second@example.com'],
+  ]);
+});
+
+test('generated email helper respects runtime generator overrides when deciding alias flow', async () => {
+  const api = loadGeneratedEmailHelpersApi();
+  const aliasStates = [];
+  const savedEmails = [];
+
+  const helpers = api.createGeneratedEmailHelpers({
+    addLog: async () => {},
+    buildGeneratedAliasEmail: (state) => {
+      aliasStates.push({ ...state });
+      return 'base+tag@gmail.com';
+    },
+    buildCloudflareTempEmailHeaders: () => ({}),
+    CLOUDFLARE_TEMP_EMAIL_GENERATOR: 'cloudflare-temp-email',
+    CUSTOM_EMAIL_POOL_GENERATOR: 'custom-pool',
+    DUCK_AUTOFILL_URL: 'https://duckduckgo.com/email',
+    fetch: async () => ({ ok: true, text: async () => '{}' }),
+    fetchIcloudHideMyEmail: async () => {
+      throw new Error('should not use icloud generator');
+    },
+    getCloudflareTempEmailAddressFromResponse: () => '',
+    getCloudflareTempEmailConfig: () => ({ baseUrl: '', adminAuth: '', domain: '' }),
+    getCustomEmailPoolEmail: () => '',
+    getState: async () => ({
+      mailProvider: '163',
+      emailGenerator: 'duck',
+      gmailBaseEmail: '',
+    }),
+    ensureMail2925AccountForFlow: async () => {
+      throw new Error('should not allocate mail2925 account');
+    },
+    joinCloudflareTempEmailUrl: () => '',
+    normalizeCloudflareDomain: () => '',
+    normalizeCloudflareTempEmailAddress: () => '',
+    normalizeEmailGenerator: (value) => String(value || '').trim().toLowerCase(),
+    isGeneratedAliasProvider: (stateOrProvider, mail2925Mode) => {
+      const provider = typeof stateOrProvider === 'string'
+        ? stateOrProvider
+        : stateOrProvider?.mailProvider;
+      const generator = typeof stateOrProvider === 'string'
+        ? ''
+        : stateOrProvider?.emailGenerator;
+      return String(provider || '').trim().toLowerCase() === 'gmail'
+        && String(generator || '').trim().toLowerCase() !== 'custom-pool'
+        && String(mail2925Mode || '').trim().toLowerCase() !== 'receive';
+    },
+    reuseOrCreateTab: async () => {},
+    sendToContentScript: async () => {
+      throw new Error('should not use duck generator');
+    },
+    setEmailState: async (email) => {
+      savedEmails.push(email);
+    },
+    throwIfStopped: () => {},
+  });
+
+  const email = await helpers.fetchGeneratedEmail({
+    mailProvider: '163',
+    emailGenerator: 'duck',
+  }, {
+    generator: 'gmail-alias',
+    mailProvider: 'gmail',
+    gmailBaseEmail: 'base@gmail.com',
+  });
+
+  assert.equal(email, 'base+tag@gmail.com');
+  assert.deepEqual(savedEmails, ['base+tag@gmail.com']);
+  assert.equal(aliasStates.length, 1);
+  assert.equal(aliasStates[0].mailProvider, 'gmail');
+  assert.equal(aliasStates[0].emailGenerator, 'gmail-alias');
+  assert.equal(aliasStates[0].gmailBaseEmail, 'base@gmail.com');
+});
+
 test('generated email helper uses the regular temp email domain when random subdomain mode is disabled', async () => {
   const api = loadGeneratedEmailHelpersApi();
   const requests = [];

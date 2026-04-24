@@ -345,6 +345,51 @@ test('verification flow treats add-phone after login code submit as fatal instea
   ]);
 });
 
+test('verification flow treats manual step 8 add-phone confirmation as the same fatal add-phone error', async () => {
+  const helpers = api.createVerificationFlowHelpers({
+    addLog: async () => {},
+    chrome: {
+      tabs: {
+        update: async () => {},
+      },
+    },
+    CLOUDFLARE_TEMP_EMAIL_PROVIDER: 'cloudflare-temp-email',
+    completeStepFromBackground: async () => {
+      throw new Error('should not complete step 8');
+    },
+    confirmCustomVerificationStepBypassRequest: async () => ({
+      confirmed: false,
+      addPhoneDetected: true,
+    }),
+    getHotmailVerificationPollConfig: () => ({}),
+    getHotmailVerificationRequestTimestamp: () => 0,
+    getState: async () => ({}),
+    getTabId: async () => 1,
+    HOTMAIL_PROVIDER: 'hotmail-api',
+    isStopError: () => false,
+    LUCKMAIL_PROVIDER: 'luckmail-api',
+    MAIL_2925_VERIFICATION_INTERVAL_MS: 15000,
+    MAIL_2925_VERIFICATION_MAX_ATTEMPTS: 15,
+    pollCloudflareTempEmailVerificationCode: async () => ({}),
+    pollHotmailVerificationCode: async () => ({}),
+    pollLuckmailVerificationCode: async () => ({}),
+    sendToContentScript: async () => ({}),
+    sendToMailContentScriptResilient: async () => ({}),
+    setState: async () => {},
+    setStepStatus: async () => {
+      throw new Error('should not mark step skipped when add-phone is chosen');
+    },
+    sleepWithStop: async () => {},
+    throwIfStopped: () => {},
+    VERIFICATION_POLL_MAX_ROUNDS: 5,
+  });
+
+  await assert.rejects(
+    () => helpers.confirmCustomVerificationStepBypass(8),
+    /验证码提交后页面进入手机号页面/
+  );
+});
+
 test('verification flow caps mail polling timeout to the remaining oauth budget', async () => {
   const mailPollCalls = [];
 

@@ -48,7 +48,7 @@ function extractFunction(name) {
   return sidepanelSource.slice(start, end);
 }
 
-function createApi({ refreshImpl } = {}) {
+function createApi({ refreshImpl, confirmImpl, dismissImpl } = {}) {
   const bundle = extractFunction('startAutoRunFromCurrentSettings');
 
   return new Function(`
@@ -90,6 +90,14 @@ async function refreshContributionContentHint() {
   events.push({ type: 'refresh' });
   ${refreshImpl ? 'return (' + refreshImpl + ')();' : 'return null;'}
 }
+async function maybeConfirmContributionUpdateBeforeAutoRun(snapshot) {
+  events.push({ type: 'confirm-check', snapshot });
+  ${confirmImpl ? 'return (' + confirmImpl + ')(snapshot);' : 'return true;'}
+}
+function dismissContributionUpdateHint() {
+  events.push({ type: 'dismiss-hint' });
+  ${dismissImpl ? '(' + dismissImpl + ')();' : ''}
+}
 ${bundle}
 return {
   startAutoRunFromCurrentSettings,
@@ -108,9 +116,9 @@ test('startAutoRunFromCurrentSettings refreshes contribution content hint before
   assert.equal(result, true);
   assert.deepEqual(
     api.getEvents().map((entry) => entry.type),
-    ['refresh', 'send']
+    ['refresh', 'confirm-check', 'send']
   );
-  assert.equal(api.getEvents()[1].message.type, 'AUTO_RUN');
+  assert.equal(api.getEvents()[2].message.type, 'AUTO_RUN');
 });
 
 test('startAutoRunFromCurrentSettings continues auto run when contribution content refresh fails', async () => {
@@ -124,8 +132,26 @@ test('startAutoRunFromCurrentSettings continues auto run when contribution conte
   assert.equal(result, true);
   assert.deepEqual(
     events.map((entry) => entry.type),
-    ['refresh', 'warn', 'send']
+    ['refresh', 'warn', 'confirm-check', 'send']
   );
   assert.match(String(events[1].args[0]), /Failed to refresh contribution content hint before auto run/);
-  assert.equal(events[2].message.type, 'AUTO_RUN');
+  assert.equal(events[3].message.type, 'AUTO_RUN');
+});
+
+test('startAutoRunFromCurrentSettings aborts when contribution update confirmation is declined', async () => {
+  const api = createApi({
+    refreshImpl: `async () => ({
+      promptVersion: 'questionnaire:2026-04-23T00:00:00Z',
+      items: [{ slug: 'questionnaire', isVisible: true }],
+    })`,
+    confirmImpl: 'async () => false',
+  });
+
+  const result = await api.startAutoRunFromCurrentSettings();
+
+  assert.equal(result, false);
+  assert.deepEqual(
+    api.getEvents().map((entry) => entry.type),
+    ['refresh', 'confirm-check']
+  );
 });

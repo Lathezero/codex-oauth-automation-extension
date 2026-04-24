@@ -231,6 +231,11 @@
           <button id="btn-mail-login" class="btn btn-outline btn-sm data-inline-btn" type="button" disabled>登录</button>
         </div>
       </div>
+      <div class="data-row data-check-row" id="row-custom-mail-provider-pool" style="display:none;">
+        <span class="data-label">自定义号池</span>
+        <textarea id="input-custom-mail-provider-pool" class="data-textarea"
+          placeholder="每行一个注册邮箱，例如&#10;alias001@example.com&#10;alias002@example.com"></textarea>
+      </div>
       <div class="data-row" id="row-mail-2925-mode" style="display:none;">
         <span class="data-label">2925 模式</span>
         <div id="mail-2925-mode-group" class="choice-group" role="group" aria-label="2925 邮箱模式">
@@ -241,11 +246,18 @@
       <div class="data-row" id="row-email-generator">
         <span class="data-label">邮箱生成</span>
         <select id="select-email-generator" class="data-select">
+          <option value="gmail-alias">Gmail +tag</option>
           <option value="duck">DuckDuckGo</option>
+          <option value="custom-pool">自定义邮箱池</option>
           <option value="cloudflare">Cloudflare</option>
           <option value="icloud">iCloud 隐私邮箱</option>
           <option value="cloudflare-temp-email">Cloudflare Temp Email</option>
         </select>
+      </div>
+      <div class="data-row data-check-row" id="row-custom-email-pool" style="display:none;">
+        <span class="data-label">邮箱池</span>
+        <textarea id="input-custom-email-pool" class="data-textarea"
+          placeholder="每行一个邮箱，例如&#10;alias001@gmail.com&#10;alias002@gmail.com"></textarea>
       </div>
       <div class="data-row" id="row-cf-domain" style="display:none;">
         <span class="data-label">CF 域名</span>
