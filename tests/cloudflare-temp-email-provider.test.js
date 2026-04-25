@@ -172,6 +172,8 @@ test('pollCloudflareTempEmailVerificationCode prefers configured receive mailbox
 
   const result = await api.pollCloudflareTempEmailVerificationCode(4, {
     email: 'duck-forwarded@duck.com',
+    mailProvider: 'cloudflare-temp-email',
+    emailGenerator: 'duck',
     cloudflareTempEmailReceiveMailbox: 'forward-box@email.20021108.xyz',
   }, {
     targetEmail: 'duck-forwarded@duck.com',
@@ -181,4 +183,32 @@ test('pollCloudflareTempEmailVerificationCode prefers configured receive mailbox
 
   assert.equal(result.code, '654321');
   assert.deepEqual(api.snapshot().listCalls, ['forward-box@email.20021108.xyz']);
+});
+
+test('pollCloudflareTempEmailVerificationCode ignores stale receive mailbox when the field should be hidden', async () => {
+  const api = createProviderApi({
+    receiveMailbox: 'forward-box@email.20021108.xyz',
+    messages: [{
+      id: 'mail-3',
+      address: 'generated@email.20021108.xyz',
+      receivedDateTime: '2026-04-13T11:20:00.000Z',
+      subject: 'Signup verification code',
+      from: { emailAddress: { address: 'noreply@tm.openai.com' } },
+      bodyPreview: 'Your verification code is 246810.',
+    }],
+  });
+
+  const result = await api.pollCloudflareTempEmailVerificationCode(4, {
+    email: 'generated@email.20021108.xyz',
+    mailProvider: 'cloudflare-temp-email',
+    emailGenerator: 'cloudflare-temp-email',
+    cloudflareTempEmailReceiveMailbox: 'forward-box@email.20021108.xyz',
+  }, {
+    targetEmail: 'generated@email.20021108.xyz',
+    maxAttempts: 1,
+    intervalMs: 1,
+  });
+
+  assert.equal(result.code, '246810');
+  assert.deepEqual(api.snapshot().listCalls, ['generated@email.20021108.xyz']);
 });

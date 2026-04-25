@@ -931,7 +931,11 @@ function normalizeCloudflareTempEmailReceiveMailbox(value = '') {
 
 function resolveCloudflareTempEmailPollTargetEmail(state = {}, pollPayload = {}, config = getCloudflareTempEmailConfig(state)) {
   const configuredReceiveMailbox = normalizeCloudflareTempEmailReceiveMailbox(config.receiveMailbox);
-  if (configuredReceiveMailbox) {
+  const mailProvider = String(state?.mailProvider || '').trim().toLowerCase();
+  const emailGenerator = String(state?.emailGenerator || '').trim().toLowerCase();
+  const shouldPreferConfiguredReceiveMailbox = mailProvider === 'cloudflare-temp-email'
+    && emailGenerator !== 'cloudflare-temp-email';
+  if (shouldPreferConfiguredReceiveMailbox && configuredReceiveMailbox) {
     return configuredReceiveMailbox;
   }
 
