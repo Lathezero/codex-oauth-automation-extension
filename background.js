@@ -7109,7 +7109,6 @@ const plusReturnConfirmExecutor = self.MultiPageBackgroundPlusReturnConfirm?.cre
   isTabAlive,
   setState,
   sleepWithStop,
-  waitForTabCompleteUntilStopped,
   waitForTabUrlMatchUntilStopped,
 });
 const step10Executor = self.MultiPageBackgroundStep10?.createStep10Executor({
