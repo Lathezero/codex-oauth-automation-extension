@@ -5600,6 +5600,19 @@ function notifyStepError(step, error) {
   if (waiter) waiter.reject(new Error(error));
 }
 
+async function runCompletedStepSideEffects(step, payload, completionState, lastStepId) {
+  await handleStepData(step, payload);
+  if (step === lastStepId) {
+    await appendAndBroadcastAccountRunRecord('success', completionState);
+  }
+}
+
+async function reportCompletedStepSideEffectError(step, error) {
+  const message = getErrorMessage(error);
+  console.warn(LOG_PREFIX, `[completeStepFromBackground] step ${step} post-completion side effect failed:`, error);
+  await addLog(`步骤 ${step} 已完成，但完成后的收尾处理失败：${message}`, 'warn');
+}
+
 async function completeStepFromBackground(step, payload = {}) {
   if (stopRequested) {
     await setStepStatus(step, 'stopped');
@@ -5615,10 +5628,15 @@ async function completeStepFromBackground(step, payload = {}) {
   const completionState = step === lastStepId ? latestState : null;
   await setStepStatus(step, 'completed');
   await addLog(`步骤 ${step} 已完成`, 'ok');
-  await handleStepData(step, payload);
+
   if (step === lastStepId) {
-    await appendAndBroadcastAccountRunRecord('success', completionState);
+    notifyStepComplete(step, payload);
+    void runCompletedStepSideEffects(step, payload, completionState, lastStepId)
+      .catch((error) => reportCompletedStepSideEffectError(step, error));
+    return;
   }
+
+  await runCompletedStepSideEffects(step, payload, completionState, lastStepId);
   notifyStepComplete(step, payload);
 }
 
