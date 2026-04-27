@@ -26,6 +26,11 @@
       return String(value || '').trim();
     }
 
+    function resolvePlatformVerifyStep(state = {}) {
+      const visibleStep = Math.floor(Number(state?.visibleStep) || 0);
+      return visibleStep >= 10 ? visibleStep : 10;
+    }
+
     function parseLocalhostCallback(rawUrl) {
       let parsed;
       try {
@@ -180,6 +185,7 @@
     }
 
     async function executeCpaStep10(state) {
+      const platformVerifyStep = resolvePlatformVerifyStep(state);
       if (state.localhostUrl && !isLocalhostOAuthCallbackUrl(state.localhostUrl)) {
         throw new Error('步骤 9 捕获到的 localhost OAuth 回调地址无效，请重新执行步骤 9。');
       }
@@ -192,7 +198,7 @@
 
       if (shouldBypassStep9ForLocalCpa(state)) {
         await addLog('步骤 10：检测到本地 CPA，且当前策略为“跳过第10步”，本轮不再重复提交回调地址。', 'info');
-        await completeStepFromBackground(10, {
+        await completeStepFromBackground(platformVerifyStep, {
           localhostUrl: state.localhostUrl,
           verifiedStatus: 'local-auto',
         });
@@ -225,7 +231,7 @@
           || normalizeString(result?.status_message)
           || 'CPA 已通过接口提交回调';
         await addLog(`步骤 10：${verifiedStatus}`, 'ok');
-        await completeStepFromBackground(10, {
+        await completeStepFromBackground(platformVerifyStep, {
           localhostUrl: callback.url,
           verifiedStatus,
         });
@@ -237,6 +243,7 @@
     }
 
     async function executeCodex2ApiStep10(state) {
+      const platformVerifyStep = resolvePlatformVerifyStep(state);
       if (state.localhostUrl && !isLocalhostOAuthCallbackUrl(state.localhostUrl)) {
         throw new Error('步骤 9 捕获到的 localhost OAuth 回调地址无效，请重新执行步骤 9。');
       }
@@ -272,7 +279,7 @@
 
       const verifiedStatus = normalizeString(result?.message) || 'Codex2API OAuth 账号添加成功';
       await addLog(`步骤 10：${verifiedStatus}`, 'ok');
-      await completeStepFromBackground(10, {
+      await completeStepFromBackground(platformVerifyStep, {
         localhostUrl: callback.url,
         verifiedStatus,
       });

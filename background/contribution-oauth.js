@@ -10,6 +10,8 @@
   const RUNTIME_DEFAULTS = {
     contributionMode: false,
     contributionModeExpected: false,
+    contributionSource: 'sub2api',
+    contributionTargetGroupName: 'codex号池',
     contributionNickname: '',
     contributionQq: '',
     contributionSessionId: '',
@@ -38,6 +40,8 @@
     } = deps;
 
     let listenersBound = false;
+    const pendingCallbackSubmissions = new Map();
+    const pendingCapturedCallbacks = new Map();
 
     function normalizeString(value = '') {
       return String(value || '').trim();
@@ -256,6 +260,41 @@
       return qq;
     }
 
+    function isPlusModeState(state = {}) {
+      return Boolean(state?.plusModeEnabled);
+    }
+
+    function normalizeContributionModeSource(value = '') {
+      const normalized = normalizeString(value).toLowerCase();
+      return normalized === 'sub2api' ? 'sub2api' : 'cpa';
+    }
+
+    function resolveContributionModeRoutingState(state = {}) {
+      const currentStatus = normalizeString(state?.contributionStatus).toLowerCase();
+      const currentSource = normalizeContributionModeSource(state?.contributionSource);
+      const hasActiveSession = Boolean(
+        normalizeString(state?.contributionSessionId)
+        && currentStatus
+        && !FINAL_STATUSES.has(currentStatus)
+      );
+
+      if (hasActiveSession) {
+        return {
+          source: currentSource,
+          targetGroupName: currentSource === 'sub2api'
+            ? (normalizeString(state?.contributionTargetGroupName) || 'codex号池')
+            : '',
+        };
+      }
+
+      return {
+        source: 'sub2api',
+        targetGroupName: isPlusModeState(state)
+          ? 'openai-plus'
+          : (normalizeString(state?.contributionTargetGroupName) || 'codex号池'),
+      };
+    }
+
     function buildStatusMessage(status, payload = {}) {
       const label = getStatusLabel(status);
       const details = [
@@ -435,46 +474,58 @@
         return currentState;
       }
 
-      await applyRuntimeUpdates({
-        contributionCallbackUrl: normalizedUrl,
-        contributionCallbackStatus: 'submitting',
-        contributionCallbackMessage: buildCallbackMessage('submitting'),
-      });
-
-      try {
-        const payload = await fetchContributionJson('/submit-callback', {
-          method: 'POST',
-          body: {
-            session_id: sessionId,
-            callback_url: normalizedUrl,
-          },
-        });
-
-        const nextStatus = 'submitted';
-        await applyRuntimeUpdates({
-          contributionCallbackUrl: normalizedUrl,
-          contributionCallbackStatus: nextStatus,
-          contributionCallbackMessage: buildCallbackMessage(nextStatus, payload),
-        });
-
-        if (typeof closeLocalhostCallbackTabs === 'function') {
-          await closeLocalhostCallbackTabs(normalizedUrl).catch(() => {});
-        }
-
-        return await pollContributionStatus({ reason: options.reason || 'submit_callback' });
-      } catch (error) {
-        await applyRuntimeUpdates({
-          contributionCallbackUrl: normalizedUrl,
-          contributionCallbackStatus: 'failed',
-          contributionCallbackMessage: `回调提交失败：${error.message}`,
-        });
-
-        if (typeof addLog === 'function') {
-          await addLog(`贡献模式：回调提交失败：${error.message}`, 'warn');
-        }
-
-        throw error;
+      const dedupeKey = `${sessionId}::${normalizedUrl}`;
+      if (pendingCallbackSubmissions.has(dedupeKey)) {
+        return pendingCallbackSubmissions.get(dedupeKey);
       }
+
+      const task = (async () => {
+        await applyRuntimeUpdates({
+          contributionCallbackUrl: normalizedUrl,
+          contributionCallbackStatus: 'submitting',
+          contributionCallbackMessage: buildCallbackMessage('submitting'),
+        });
+
+        try {
+          const payload = await fetchContributionJson('/submit-callback', {
+            method: 'POST',
+            body: {
+              session_id: sessionId,
+              callback_url: normalizedUrl,
+            },
+          });
+
+          const nextStatus = 'submitted';
+          await applyRuntimeUpdates({
+            contributionCallbackUrl: normalizedUrl,
+            contributionCallbackStatus: nextStatus,
+            contributionCallbackMessage: buildCallbackMessage(nextStatus, payload),
+          });
+
+          if (typeof closeLocalhostCallbackTabs === 'function') {
+            await closeLocalhostCallbackTabs(normalizedUrl).catch(() => {});
+          }
+
+          return await pollContributionStatus({ reason: options.reason || 'submit_callback' });
+        } catch (error) {
+          await applyRuntimeUpdates({
+            contributionCallbackUrl: normalizedUrl,
+            contributionCallbackStatus: 'failed',
+            contributionCallbackMessage: `回调提交失败：${error.message}`,
+          });
+
+          if (typeof addLog === 'function') {
+            await addLog(`贡献模式：回调提交失败：${error.message}`, 'warn');
+          }
+
+          throw error;
+        } finally {
+          pendingCallbackSubmissions.delete(dedupeKey);
+        }
+      })();
+
+      pendingCallbackSubmissions.set(dedupeKey, task);
+      return task;
     }
 
     async function handleCapturedCallback(rawUrl, metadata = {}) {
@@ -487,6 +538,13 @@
       }
 
       const normalizedUrl = normalizeString(rawUrl);
+      const callbackDedupeKey = `${normalizeString(currentState.contributionSessionId)}::${normalizedUrl}`;
+      if (pendingCapturedCallbacks.has(callbackDedupeKey)) {
+        return pendingCapturedCallbacks.get(callbackDedupeKey);
+      }
+      if (pendingCallbackSubmissions.has(callbackDedupeKey)) {
+        return pendingCallbackSubmissions.get(callbackDedupeKey);
+      }
       const currentCallbackStatus = normalizeContributionCallbackStatus(currentState.contributionCallbackStatus);
       if (
         normalizedUrl
@@ -496,24 +554,31 @@
         return currentState;
       }
 
-      await applyRuntimeUpdates({
-        contributionCallbackUrl: normalizedUrl,
-        contributionCallbackStatus: 'captured',
-        contributionCallbackMessage: buildCallbackMessage('captured'),
-      });
-
-      if (typeof addLog === 'function') {
-        await addLog(`贡献模式：已捕获回调地址（${metadata.source || 'unknown'}）。`, 'info');
-      }
-
-      try {
-        return await submitContributionCallback(normalizedUrl, {
-          reason: metadata.source || 'navigation',
-          stateOverride: await getState(),
+      const task = (async () => {
+        await applyRuntimeUpdates({
+          contributionCallbackUrl: normalizedUrl,
+          contributionCallbackStatus: 'captured',
+          contributionCallbackMessage: buildCallbackMessage('captured'),
         });
-      } catch {
-        return getState();
-      }
+
+        if (typeof addLog === 'function') {
+          await addLog(`贡献模式：已捕获回调地址（${metadata.source || 'unknown'}）。`, 'info');
+        }
+
+        try {
+          return await submitContributionCallback(normalizedUrl, {
+            reason: metadata.source || 'navigation',
+            stateOverride: await getState(),
+          });
+        } catch {
+          return getState();
+        } finally {
+          pendingCapturedCallbacks.delete(callbackDedupeKey);
+        }
+      })();
+
+      pendingCapturedCallbacks.set(callbackDedupeKey, task);
+      return task;
     }
 
     async function pollContributionStatus(options = {}) {
@@ -594,13 +659,15 @@
         return pollContributionStatus({ reason: 'resume_existing' });
       }
 
+      const routingState = resolveContributionModeRoutingState(currentState);
       const payload = await fetchContributionJson('/start', {
         method: 'POST',
         body: {
           nickname: buildNickname(currentState, options.nickname),
           qq: buildContributionQq(currentState, options.qq),
           email: normalizeString(currentState.email),
-          source: 'cpa',
+          source: routingState.source,
+          target_group_name: routingState.targetGroupName,
           channel: 'codex-extension',
         },
       });

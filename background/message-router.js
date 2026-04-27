@@ -40,6 +40,9 @@
       getPendingAutoRunTimerPlan,
       getSourceLabel,
       getState,
+      getStepDefinitionForState,
+      getStepIdsForState,
+      getLastStepIdForState,
       getTabId,
       getStopRequested,
       handleAutoRunLoopUnhandledError,
@@ -127,7 +130,47 @@
       }
     }
 
+    function resolveLastStepIdForState(state = {}) {
+      if (typeof getLastStepIdForState === 'function') {
+        const fromResolver = Number(getLastStepIdForState(state));
+        if (Number.isFinite(fromResolver) && fromResolver > 0) {
+          return fromResolver;
+        }
+      }
+      const stepIds = typeof getStepIdsForState === 'function'
+        ? (getStepIdsForState(state) || [])
+        : Object.keys(state?.stepStatuses || {}).map((step) => Number(step)).filter(Number.isFinite);
+      const sorted = stepIds.slice().sort((left, right) => left - right);
+      return Math.max(10, sorted[sorted.length - 1] || 0);
+    }
+
     async function handleStepData(step, payload) {
+      if (payload.skipLoginVerificationStep || payload.directOAuthConsentPage) {
+        const latestState = await getState();
+        const currentDefinition = typeof getStepDefinitionForState === 'function'
+          ? getStepDefinitionForState(step, latestState)
+          : null;
+        const currentKey = String(currentDefinition?.key || '').trim();
+        if (currentKey === 'oauth-login') {
+          const stepIds = typeof getStepIdsForState === 'function'
+            ? (getStepIdsForState(latestState) || [])
+            : Object.keys(latestState?.stepStatuses || {}).map((item) => Number(item)).filter(Number.isFinite);
+          const ordered = stepIds.slice().sort((left, right) => left - right);
+          const currentIndex = ordered.indexOf(Number(step));
+          const nextStep = currentIndex >= 0 ? ordered[currentIndex + 1] : null;
+          const nextDefinition = Number.isFinite(nextStep) && typeof getStepDefinitionForState === 'function'
+            ? getStepDefinitionForState(nextStep, latestState)
+            : null;
+          if (Number.isFinite(nextStep) && String(nextDefinition?.key || '').trim() === 'fetch-login-code') {
+            const nextStatus = latestState.stepStatuses?.[nextStep];
+            if (nextStatus !== 'running' && nextStatus !== 'completed' && nextStatus !== 'manual_completed') {
+              await setStepStatus(nextStep, 'skipped');
+              await addLog(`步骤 ${step}：检测到已直达 OAuth 授权页，已自动跳过步骤 ${nextStep} 登录验证码。`, 'warn');
+            }
+          }
+        }
+      }
+
       switch (step) {
         case 1: {
           const updates = {};
@@ -217,7 +260,8 @@
             broadcastDataUpdate({ localhostUrl: payload.localhostUrl });
           }
           break;
-        case 10: {
+        case 10:
+        case 13: {
           if (payload.localhostUrl) {
             await closeLocalhostCallbackTabs(payload.localhostUrl);
           }
@@ -305,11 +349,13 @@
             return { ok: true, error: errorMessage };
           }
 
-          const completionState = message.step === 10 ? await getState() : null;
+          const latestState = await getState();
+          const lastStepId = resolveLastStepIdForState(latestState);
+          const completionState = message.step === lastStepId ? latestState : null;
           await setStepStatus(message.step, 'completed');
           await addLog(`步骤 ${message.step} 已完成`, 'ok');
           await handleStepData(message.step, message.payload);
-          if (message.step === 10 && typeof appendAccountRunRecord === 'function') {
+          if (message.step === lastStepId && typeof appendAccountRunRecord === 'function') {
             await appendAccountRunRecord('success', completionState);
           }
           notifyStepComplete(message.step, message.payload);
