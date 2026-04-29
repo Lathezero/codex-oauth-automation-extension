@@ -1570,6 +1570,12 @@ async function settlePendingSettingsBeforeImport() {
   await waitForSettingsSaveIdle();
 }
 
+async function persistCurrentSettingsForAction() {
+  clearTimeout(settingsAutoSaveTimer);
+  await waitForSettingsSaveIdle();
+  await saveSettings({ silent: true, force: true });
+}
+
 function downloadTextFile(content, fileName, mimeType = 'application/json;charset=utf-8') {
   const blob = new Blob([content], { type: mimeType });
   const objectUrl = URL.createObjectURL(blob);
@@ -3656,10 +3662,10 @@ function scheduleSettingsAutoSave() {
 }
 
 async function saveSettings(options = {}) {
-  const { silent = false } = options;
+  const { silent = false, force = false } = options;
   clearTimeout(settingsAutoSaveTimer);
 
-  if (!settingsDirty && !settingsSaveInFlight && silent) {
+  if (!force && !settingsDirty && !settingsSaveInFlight && silent) {
     return;
   }
 
@@ -6253,6 +6259,7 @@ stepsList?.addEventListener('click', async (event) => {
     if (!(await maybeTakeoverAutoRun(`执行步骤 ${step}`))) {
       return;
     }
+    await persistCurrentSettingsForAction();
     if (step === 3) {
       if (inputPassword.value !== (latestState?.customPassword || '')) {
         await chrome.runtime.sendMessage({
@@ -6494,8 +6501,8 @@ async function startAutoRunFromCurrentSettings() {
     console.warn('Failed to refresh contribution content hint before auto run:', error);
   }
 
-  if (typeof settingsDirty !== 'undefined' && settingsDirty && typeof saveSettings === 'function') {
-    await saveSettings({ silent: true });
+  if (typeof persistCurrentSettingsForAction === 'function') {
+    await persistCurrentSettingsForAction();
   }
 
   const customEmailPoolEnabled = typeof usesCustomEmailPoolGenerator === 'function'
