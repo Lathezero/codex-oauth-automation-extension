@@ -668,11 +668,84 @@ function matchesMailFilters(text, senderFilters, subjectFilters) {
   return senderMatch || subjectMatch;
 }
 
-function extractVerificationCode(text, strictChatGPTCodeOnly = false) {
-  if (strictChatGPTCodeOnly) {
-    const strictMatch = String(text || '').match(/(?:your\s+chatgpt\s+code\s+is|(?:chatgpt\s+log-?in\s+code|suspicious\s+log-?in)[\s\S]{0,120}enter\s+this\s+code)[^0-9]{0,24}(\d{6})/i);
-    return strictMatch ? strictMatch[1] : null;
+function extractStrictChatGPTVerificationCode(text) {
+  const normalized = String(text || '');
+  const patterns = [
+    /your\s+(?:temporary\s+)?chatgpt\s+(?:(?:log-?in|login)\s+)?code\s+is[\s\S]{0,80}?(\d{6})/i,
+    /(?:chatgpt\s+log-?in\s+code|suspicious\s+log-?in)[\s\S]{0,200}?enter\s+this\s+code[\s\S]{0,80}?(\d{6})/i,
+    /enter\s+this\s+code[\s\S]{0,80}?(\d{6})/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    if (match) return match[1];
   }
+
+  return null;
+}
+
+function isLikelyCompactTimeValue(value = '') {
+  const text = String(value || '');
+  if (!/^\d{6}$/.test(text)) return false;
+
+  const hours = Number(text.slice(0, 2));
+  const minutes = Number(text.slice(2, 4));
+  const seconds = Number(text.slice(4, 6));
+  return hours >= 0 && hours <= 23
+    && minutes >= 0 && minutes <= 59
+    && seconds >= 0 && seconds <= 59;
+}
+
+function isLikelyHeaderTimestampCode(text, index, value) {
+  const source = String(text || '');
+  const candidate = String(value || '');
+  if (!candidate) return false;
+
+  const before = source.slice(Math.max(0, index - 80), index);
+  const after = source.slice(index + candidate.length, index + candidate.length + 40);
+  const context = `${before}${candidate}${after}`.replace(/\s+/g, ' ');
+  const beforeCompact = before.replace(/\s+/g, ' ');
+  const timeLike = isLikelyCompactTimeValue(candidate);
+
+  if (
+    timeLike
+    && /(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2})\s*$/.test(beforeCompact)
+  ) {
+    return true;
+  }
+
+  if (
+    timeLike
+    && /(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2})\s*(?:\d{1,2}:\d{2}(?::\d{2})?|\d{6})/.test(context)
+  ) {
+    return true;
+  }
+
+  return /(?:time|date|sent|received|received\s+at|sent\s+at|\u65f6\s*\u95f4|\u65e5\s*\u671f)[\s:\uFF1A-]*$/i.test(beforeCompact)
+    && (timeLike || /^20\d{4}$/.test(candidate));
+}
+
+function findSafeStandaloneSixDigitCode(text) {
+  const normalized = String(text || '');
+  const pattern = /\b(\d{6})\b/g;
+  let match = null;
+
+  while ((match = pattern.exec(normalized)) !== null) {
+    const candidate = match[1];
+    if (!isLikelyHeaderTimestampCode(normalized, match.index, candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function extractVerificationCode(text, strictChatGPTCodeOnly = false) {
+  const strictCode = extractStrictChatGPTVerificationCode(text);
+  if (strictChatGPTCodeOnly) {
+    return strictCode;
+  }
+  if (strictCode) return strictCode;
 
   const normalized = String(text || '');
 
@@ -688,10 +761,7 @@ function extractVerificationCode(text, strictChatGPTCodeOnly = false) {
   const matchEn = normalized.match(/code[:\s]+is[:\s]+(\d{6})|code[:\s]+(\d{6})/i);
   if (matchEn) return matchEn[1] || matchEn[2];
 
-  const match6 = normalized.match(/\b(\d{6})\b/);
-  if (match6) return match6[1];
-
-  return null;
+  return findSafeStandaloneSixDigitCode(normalized);
 }
 
 function extractEmails(text = '') {
