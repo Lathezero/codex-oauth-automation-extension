@@ -228,14 +228,19 @@
         <span class="data-label">Plus 模式</span>
         <div class="data-inline setting-pair">
           <div class="setting-group setting-group-primary">
-            <label class="toggle-switch" for="input-plus-mode-enabled" title="开启后使用 Plus Checkout + PayPal 授权流程">
+            <label class="toggle-switch" for="input-plus-mode-enabled" title="开启后使用 Plus Checkout 订阅流程">
               <input type="checkbox" id="input-plus-mode-enabled" />
               <span class="toggle-switch-track" aria-hidden="true">
                 <span class="toggle-switch-thumb"></span>
               </span>
             </label>
           </div>
-          <span class="setting-caption">PayPal 订阅链路</span>
+          <div class="setting-group setting-group-secondary">
+            <select id="select-plus-payment-method" class="data-select plus-payment-method-select" style="display:none;" aria-label="Plus 支付方式">
+              <option value="paypal">PayPal 支付</option>
+              <option value="gopay">GoPay 支付</option>
+            </select>
+          </div>
         </div>
       </div>
       <div class="data-row" id="row-paypal-account" style="display:none;">

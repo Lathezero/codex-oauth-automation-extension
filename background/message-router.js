@@ -694,9 +694,14 @@
             await setContributionMode(true);
           }
           if (modeChanged) {
+            const selectedPlusPaymentMethod = String(
+              (stateUpdates.plusPaymentMethod ?? currentState?.plusPaymentMethod ?? 'paypal')
+            ).trim().toLowerCase() === 'gopay'
+              ? 'GoPay'
+              : 'PayPal';
             await addLog(
               Boolean(updates.plusModeEnabled)
-                ? 'Plus 模式已开启，已切换为 Plus Checkout + PayPal 步骤。'
+                ? `Plus 模式已开启，已切换为 Plus Checkout 步骤，当前支付方式：${selectedPlusPaymentMethod}。`
                 : 'Plus 模式已关闭，已恢复普通注册授权步骤。',
               'info'
             );

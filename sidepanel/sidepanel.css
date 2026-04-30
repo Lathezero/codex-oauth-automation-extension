@@ -1869,6 +1869,11 @@ header {
   justify-content: flex-end;
 }
 
+.plus-payment-method-select {
+  flex: 0 0 156px;
+  min-width: 156px;
+}
+
 .setting-caption {
   font-size: 12px;
   font-weight: 600;

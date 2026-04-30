@@ -158,6 +158,7 @@ const inputCodex2ApiAdminKey = document.getElementById('input-codex2api-admin-ke
 const rowCustomPassword = document.getElementById('row-custom-password');
 const rowPlusMode = document.getElementById('row-plus-mode');
 const inputPlusModeEnabled = document.getElementById('input-plus-mode-enabled');
+const selectPlusPaymentMethod = document.getElementById('select-plus-payment-method');
 const rowPayPalAccount = document.getElementById('row-paypal-account');
 const selectPayPalAccount = document.getElementById('select-paypal-account');
 const btnAddPayPalAccount = document.getElementById('btn-add-paypal-account');
@@ -2446,6 +2447,9 @@ function collectSettingsPayload() {
   const currentPayPalAccount = typeof getCurrentPayPalAccount === 'function'
     ? getCurrentPayPalAccount(latestState)
     : payPalAccounts.find((account) => account?.id === String(latestState?.currentPayPalAccountId || '').trim()) || null;
+  const plusPaymentMethod = typeof selectPlusPaymentMethod !== 'undefined' && selectPlusPaymentMethod
+    ? (String(selectPlusPaymentMethod.value || '').trim().toLowerCase() === 'gopay' ? 'gopay' : 'paypal')
+    : (String(latestState?.plusPaymentMethod || '').trim().toLowerCase() === 'gopay' ? 'gopay' : 'paypal');
   return {
     ...(contributionModeEnabled ? {} : {
       panelMode: selectPanelMode.value,
@@ -2478,6 +2482,7 @@ function collectSettingsPayload() {
     plusModeEnabled: typeof inputPlusModeEnabled !== 'undefined' && inputPlusModeEnabled
       ? Boolean(inputPlusModeEnabled.checked)
       : Boolean(latestState?.plusModeEnabled),
+    plusPaymentMethod,
     paypalEmail: String(currentPayPalAccount?.email || latestState?.paypalEmail || '').trim(),
     paypalPassword: String(currentPayPalAccount?.password || latestState?.paypalPassword || ''),
     currentPayPalAccountId: String(latestState?.currentPayPalAccountId || '').trim(),
@@ -3588,13 +3593,20 @@ function updatePlusModeUI() {
   const enabled = typeof inputPlusModeEnabled !== 'undefined' && inputPlusModeEnabled
     ? Boolean(inputPlusModeEnabled.checked)
     : false;
+  const paymentMethod = typeof selectPlusPaymentMethod !== 'undefined' && selectPlusPaymentMethod
+    ? (String(selectPlusPaymentMethod.value || '').trim().toLowerCase() === 'gopay' ? 'gopay' : 'paypal')
+    : (String(latestState?.plusPaymentMethod || '').trim().toLowerCase() === 'gopay' ? 'gopay' : 'paypal');
+  if (typeof selectPlusPaymentMethod !== 'undefined' && selectPlusPaymentMethod) {
+    selectPlusPaymentMethod.value = paymentMethod;
+    selectPlusPaymentMethod.style.display = enabled ? '' : 'none';
+  }
   [
     typeof rowPayPalAccount !== 'undefined' ? rowPayPalAccount : null,
   ].forEach((row) => {
     if (!row) {
       return;
     }
-    row.style.display = enabled ? '' : 'none';
+    row.style.display = enabled && paymentMethod === 'paypal' ? '' : 'none';
   });
 }
 
@@ -3895,6 +3907,11 @@ function applySettingsState(state) {
   syncPasswordField(state || {});
   if (typeof inputPlusModeEnabled !== 'undefined' && inputPlusModeEnabled) {
     inputPlusModeEnabled.checked = Boolean(state?.plusModeEnabled);
+  }
+  if (typeof selectPlusPaymentMethod !== 'undefined' && selectPlusPaymentMethod) {
+    selectPlusPaymentMethod.value = String(state?.plusPaymentMethod || '').trim().toLowerCase() === 'gopay'
+      ? 'gopay'
+      : 'paypal';
   }
   inputVpsUrl.value = state?.vpsUrl || '';
   inputVpsPassword.value = state?.vpsPassword || '';
@@ -6789,6 +6806,15 @@ inputPlusModeEnabled?.addEventListener('change', () => {
   saveSettings({ silent: true }).catch(() => { });
 });
 
+selectPlusPaymentMethod?.addEventListener('change', () => {
+  selectPlusPaymentMethod.value = String(selectPlusPaymentMethod.value || '').trim().toLowerCase() === 'gopay'
+    ? 'gopay'
+    : 'paypal';
+  updatePlusModeUI();
+  markSettingsDirty(true);
+  saveSettings({ silent: true }).catch(() => { });
+});
+
 selectMailProvider.addEventListener('change', async () => {
   const previousProvider = latestState?.mailProvider || '';
   const previousMail2925Mode = latestState?.mail2925Mode;
@@ -8118,6 +8144,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         || message.payload.cloudflareTempEmailDomains !== undefined
       ) {
         updateMailProviderUI();
+      }
+      if (message.payload.plusModeEnabled !== undefined && inputPlusModeEnabled) {
+        inputPlusModeEnabled.checked = Boolean(message.payload.plusModeEnabled);
+      }
+      if (message.payload.plusPaymentMethod !== undefined && selectPlusPaymentMethod) {
+        selectPlusPaymentMethod.value = String(message.payload.plusPaymentMethod || '').trim().toLowerCase() === 'gopay'
+          ? 'gopay'
+          : 'paypal';
+      }
+      if (message.payload.plusModeEnabled !== undefined || message.payload.plusPaymentMethod !== undefined) {
+        updatePlusModeUI();
       }
       if (message.payload.currentHotmailAccountId !== undefined || message.payload.hotmailAccounts !== undefined) {
         renderHotmailAccounts();

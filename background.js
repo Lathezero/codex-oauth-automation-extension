@@ -455,6 +455,7 @@ const PERSISTED_SETTING_DEFAULTS = {
   codex2apiAdminKey: '',
   customPassword: '',
   plusModeEnabled: false,
+  plusPaymentMethod: 'paypal',
   paypalEmail: '',
   paypalPassword: '',
   currentPayPalAccountId: '',
@@ -1427,6 +1428,8 @@ function normalizePersistentSettingValue(key, value) {
       return String(value || '');
     case 'currentPayPalAccountId':
       return String(value || '').trim();
+    case 'plusPaymentMethod':
+      return String(value || '').trim().toLowerCase() === 'gopay' ? 'gopay' : 'paypal';
     case 'autoRunSkipFailures':
     case 'autoRunDelayEnabled':
     case 'phoneVerificationEnabled':

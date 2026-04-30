@@ -65,9 +65,12 @@ test('sidepanel html loads shared step definitions before sidepanel bootstrap', 
   assert.ok(definitionsIndex < sidepanelIndex);
 });
 
-test('sidepanel html exposes Plus mode and PayPal settings', () => {
+test('sidepanel html exposes Plus mode payment controls and PayPal settings', () => {
   const html = fs.readFileSync('sidepanel/sidepanel.html', 'utf8');
   assert.match(html, /id="input-plus-mode-enabled"/);
+  assert.match(html, /id="select-plus-payment-method"/);
+  assert.match(html, /<option value="paypal">PayPal 支付<\/option>/);
+  assert.match(html, /<option value="gopay">GoPay 支付<\/option>/);
   assert.match(html, /id="select-paypal-account"/);
   assert.match(html, /id="btn-add-paypal-account"/);
   assert.match(html, /id="shared-form-modal"/);
